@@ -1,35 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>STDF to Excel Converter</title>
+  <title>STDF / Excel Processor</title>
 </head>
 <body>
-  <h2>Upload STDF File</h2>
-  <input type="file" id="stdfFile" accept=".stdf" />
+  <h2>Upload File</h2>
+  <input type="file" id="fileInput" />
+  <select id="fileType">
+    <option value="stdf">STDF File</option>
+    <option value="excel">Excel File</option>
+  </select>
   <button onclick="uploadFile()">Convert</button>
   <p id="status"></p>
 
   <script>
     async function uploadFile() {
-      const file = document.getElementById("stdfFile").files[0];
+      const file = document.getElementById("fileInput").files[0];
+      const type = document.getElementById("fileType").value;
       if (!file) return alert("Please choose a file");
 
       const formData = new FormData();
       formData.append("file", file);
+
+      const endpoint = type === "stdf"
+        ? "/api/convert-stdf/"
+        : "/api/transpose-excel/";
+
       document.getElementById("status").innerText = "Uploading...";
 
       try {
-        const res = await fetch("/api/convert/", {
-            method: "POST",
-            body: formData
-          })
+        const res = await fetch(endpoint, {
+          method: "POST",
+          body: formData,
+        });
 
+        if (!res.ok) throw new Error("Server error");
 
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "converted.xlsx";
+        a.download = file.name.replace(/\.[^/.]+$/, "") + "_converted.xlsx";
         a.click();
         document.getElementById("status").innerText = "Download started!";
       } catch (err) {
