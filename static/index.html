@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>STDF to Excel Converter</title>
+</head>
+<body>
+  <h2>Upload STDF File</h2>
+  <input type="file" id="stdfFile" accept=".stdf" />
+  <button onclick="uploadFile()">Convert</button>
+  <p id="status"></p>
+
+  <script>
+    async function uploadFile() {
+      const file = document.getElementById("stdfFile").files[0];
+      if (!file) return alert("Please choose a file");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      document.getElementById("status").innerText = "Uploading...";
+
+      try {
+        const res = await fetch("/api/convert/", {
+            method: "POST",
+            body: formData
+          })
+
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "converted.xlsx";
+        a.click();
+        document.getElementById("status").innerText = "Download started!";
+      } catch (err) {
+        document.getElementById("status").innerText = "Error: " + err;
+      }
+    }
+  </script>
+</body>
+</html>
