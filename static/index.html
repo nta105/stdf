@@ -1,37 +1,47 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>STDF / Excel Processor</title>
+  <title>STDF & Excel Converter</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+    section { margin-bottom: 40px; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
+    h2 { margin-top: 0; }
+    .status { color: green; }
+    .error { color: red; }
+  </style>
 </head>
 <body>
-  <h2>Upload File</h2>
-  <input type="file" id="fileInput" />
-  <select id="fileType">
-    <option value="stdf">STDF File</option>
-    <option value="excel">Excel File</option>
-  </select>
-  <button onclick="uploadFile()">Convert</button>
-  <p id="status"></p>
+  <h1>STDF & Excel Processing Tool</h1>
+
+  <!-- === STDF Section === -->
+  <section>
+    <h2>Convert STDF File</h2>
+    <input type="file" id="stdfFile" accept=".stdf" />
+    <button onclick="uploadSTDF()">Convert STDF</button>
+    <p id="stdfStatus" class="status"></p>
+  </section>
+
+  <!-- === Excel Section === -->
+  <section>
+    <h2>Transpose Excel File (crescendo only)</h2>
+    <input type="file" id="excelFile" accept=".xlsx" />
+    <button onclick="uploadExcel()">Transpose Excel</button>
+    <p id="excelStatus" class="status"></p>
+  </section>
 
   <script>
-    async function uploadFile() {
-      const file = document.getElementById("fileInput").files[0];
-      const type = document.getElementById("fileType").value;
-      if (!file) return alert("Please choose a file");
+    async function uploadSTDF() {
+      const file = document.getElementById("stdfFile").files[0];
+      if (!file) return alert("Please select a STDF file.");
 
       const formData = new FormData();
       formData.append("file", file);
-
-      const endpoint = type === "stdf"
-        ? "/api/convert-stdf/"
-        : "/api/transpose-excel/";
-
-      document.getElementById("status").innerText = "Uploading...";
+      document.getElementById("stdfStatus").innerText = "Uploading STDF...";
 
       try {
-        const res = await fetch(endpoint, {
+        const res = await fetch("/api/convert/", {
           method: "POST",
-          body: formData,
+          body: formData
         });
 
         if (!res.ok) throw new Error("Server error");
@@ -40,11 +50,41 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = file.name.replace(/\.[^/.]+$/, "") + "_converted.xlsx";
+        a.download = "converted.xlsx";
         a.click();
-        document.getElementById("status").innerText = "Download started!";
+        document.getElementById("stdfStatus").innerText = "STDF converted successfully.";
       } catch (err) {
-        document.getElementById("status").innerText = "Error: " + err;
+        document.getElementById("stdfStatus").innerText = "Error: " + err.message;
+        document.getElementById("stdfStatus").className = "error";
+      }
+    }
+
+    async function uploadExcel() {
+      const file = document.getElementById("excelFile").files[0];
+      if (!file) return alert("Please select an Excel file.");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      document.getElementById("excelStatus").innerText = "Uploading Excel...";
+
+      try {
+        const res = await fetch("/api/transpose/", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!res.ok) throw new Error("Server error");
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "Transposed.xlsx";
+        a.click();
+        document.getElementById("excelStatus").innerText = "Excel transposed successfully.";
+      } catch (err) {
+        document.getElementById("excelStatus").innerText = "Error: " + err.message;
+        document.getElementById("excelStatus").className = "error";
       }
     }
   </script>

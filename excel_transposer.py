@@ -56,9 +56,20 @@ def freeze_and_format_excel(output_file):
 
 def run_transpose(file_path):
     df = pd.read_excel(file_path)
-    if "Test_Code" not in df.columns:
+
+    test_code_col = "Test_Code"
+    if test_code_col not in df.columns:
         raise ValueError("Missing required column: Test_Code.")
-    test_codes = df["Test_Code"].tolist()
+
+    test_codes = df[test_code_col].tolist()
+    single_device_mode = all(pd.isna(tc) for tc in test_codes)
+
+    if single_device_mode:
+        df[test_code_col] = "T0"
+        test_code_set = ["T0"]
+    else:
+        test_code_set = sorted(set(tc for tc in test_codes if isinstance(tc, str)), key=lambda x: int(re.sub(r'\D', '', x) or 0))
+
     lsw_col = get_col_by_testnum(df, "40200000")
     msw_col = get_col_by_testnum(df, "40150000")
 
@@ -77,15 +88,14 @@ def run_transpose(file_path):
     vddio_col = get_col_by_testnum(df, "5040000")
     temp_col = get_col_by_testnum(df, "5050000")
 
-    serial_order, serial_base_map = [], {}
+    serial_order = []
+    serial_base_map = {}
     unknown_counter = 1
     for s_raw, tc in zip(serials_raw, test_codes):
-        if pd.isna(tc):
-            continue
         base = f"Unknown_{unknown_counter}" if pd.isna(s_raw) else s_raw
         if pd.isna(s_raw):
             unknown_counter += 1
-        full = f"{base}_{str(tc)}"
+        full = f"{base}" if single_device_mode else f"{base}_{str(tc)}"
         if full not in serial_order:
             serial_order.append(full)
             serial_base_map[full] = base
@@ -95,9 +105,10 @@ def run_transpose(file_path):
 
     for i, serial in enumerate(serials_raw):
         serial = f"Unknown_{i+1}" if pd.isna(serial) else serial
-        test_code = df.at[i, "Test_Code"]
+        test_code = df.at[i, test_code_col]
         if pd.isna(test_code): continue
-        serial_key_prefix = f"{serial}_{test_code}"
+        serial_key_prefix = f"{serial}" if single_device_mode else f"{serial}_{test_code}"
+
         group_key = (df.at[i, pvin_col], df.at[i, avin_col], df.at[i, vddio_col], df.at[i, temp_col])
 
         for col in test_cols:
@@ -130,7 +141,7 @@ def run_transpose(file_path):
 
     serial_cols = []
     for full_serial in serial_order:
-        matching = [col for col in df_out.columns if col.startswith(full_serial)]
+        matching = [col for col in df_out.columns if str(col).startswith(str(full_serial))]
         serial_cols.extend(matching)
     rename_map = {orig: re.sub(r"#\d+$", "", orig) for orig in serial_cols}
     df_out = df_out.rename(columns=rename_map)
@@ -138,48 +149,42 @@ def run_transpose(file_path):
     sheet1_df = df_out.drop(columns=stat_cols)
     serial_bases = sorted(set(col.split("_")[0] for col in sheet1_df.columns if "_" in col))
 
-    def sort_test_codes(codes):
-        return sorted(codes, key=lambda x: int(re.sub(r'\D', '', x) or 0))
-    test_code_set = sort_test_codes(set(tc for tc in test_codes if isinstance(tc, str)))
-
     individual_stat_sheets = {}
-    for code in test_code_set:
-        code_cols = [col for col in df_out.columns if f"_{code}" in col]
-        if not code_cols:
-            continue
-        sheet_df = df_out[meta_cols + code_cols].copy()
-        sheet_df["Average"] = sheet_df[code_cols].mean(axis=1, skipna=True)
-        sheet_df["StdDev"] = sheet_df[code_cols].std(axis=1, skipna=True)
-        sheet_df["StdDev%"] = (sheet_df["StdDev"] / sheet_df["Average"]).abs().round(2)
-        individual_stat_sheets[code] = sheet_df
+    if not single_device_mode:
+        for code in test_code_set:
+            code_cols = [col for col in df_out.columns if f"_{code}" in col]
+            if not code_cols:
+                continue
+            sheet_df = df_out[meta_cols + code_cols].copy()
+            sheet_df["Average"] = sheet_df[code_cols].mean(axis=1, skipna=True)
+            sheet_df["StdDev"] = sheet_df[code_cols].std(axis=1, skipna=True)
+            sheet_df["StdDev%"] = (sheet_df["StdDev"] / sheet_df["Average"]).abs().round(2)
+            individual_stat_sheets[code] = sheet_df
 
     compare_code_pairs = []
-    if len(test_code_set) > 1:
-        compare_code_pairs = [
-            ("T0", "T168"), ("T0", "T500"), ("T0", "T1000"),
-            ("T168", "T500"), ("T500", "T1000")
-        ]
-
     compare_sheets = {}
-    for c1, c2 in compare_code_pairs:
-        cols, col_names = [], []
-        for base in serial_bases:
-            col1 = f"{base}_{c1}"
-            col2 = f"{base}_{c2}"
-            diff_col = f"{base}_Diff_{c1}_{c2}"
-            pct_col = f"{base}_%_Diff_{c1}_{c2}"
-            if col1 in df_out.columns and col2 in df_out.columns:
-                col_names.extend([col1, col2, diff_col, pct_col])
-                col1_vals = df_out[col1]
-                col2_vals = df_out[col2]
-                diff_vals = col2_vals - col1_vals
-                pct_vals = 100 * diff_vals / col1_vals.replace(0, pd.NA)
-                pct_vals.replace([float('inf'), float('-inf')], pd.NA, inplace=True)
-                cols.extend([col1_vals, col2_vals, diff_vals, pct_vals])
-        if cols:
-            data_matrix = pd.concat([df_out[meta_cols]] + cols, axis=1)
-            data_matrix.columns = meta_cols + col_names
-            compare_sheets[f"{c1}_vs_{c2}"] = data_matrix
+    if not single_device_mode and len(test_code_set) > 1:
+        compare_code_pairs = [("T0", "T168"), ("T0", "T500"), ("T0", "T1000"), ("T168", "T500"), ("T500", "T1000")]
+        for c1, c2 in compare_code_pairs:
+            cols = []
+            col_names = []
+            for base in serial_bases:
+                col1 = f"{base}_{c1}"
+                col2 = f"{base}_{c2}"
+                diff_col = f"{base}_Diff_{c1}_{c2}"
+                pct_col = f"{base}_%_Diff_{c1}_{c2}"
+                if col1 in df_out.columns and col2 in df_out.columns:
+                    col_names.extend([col1, col2, diff_col, pct_col])
+                    col1_vals = df_out[col1]
+                    col2_vals = df_out[col2]
+                    diff_vals = col2_vals - col1_vals
+                    pct_vals = 100 * diff_vals / col1_vals.replace(0, pd.NA)
+                    pct_vals.replace([float('inf'), float('-inf')], pd.NA, inplace=True)
+                    cols.extend([col1_vals, col2_vals, diff_vals, pct_vals])
+            if cols:
+                data_matrix = pd.concat([df_out[meta_cols]] + cols, axis=1)
+                data_matrix.columns = meta_cols + col_names
+                compare_sheets[f"{c1}_vs_{c2}"] = data_matrix
 
     output_file = os.path.join(os.path.dirname(file_path), "Transposed_" + os.path.splitext(os.path.basename(file_path))[0] + ".xlsx")
     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
@@ -190,4 +195,5 @@ def run_transpose(file_path):
             df_sheet.to_excel(writer, index=False, sheet_name=name)
 
     freeze_and_format_excel(output_file)
+    print(f"Transposed file saved as: {output_file}")
     return output_file
